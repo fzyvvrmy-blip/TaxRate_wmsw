@@ -205,9 +205,16 @@ def ocr_captcha(img_bytes: bytes, _=None) -> str | None:
             log.error(f"德勤OCR失败: {data.get('message', '?')}")
             return None
 
-        # 提取文字
-        lines = data["result"].get("lines", [])
-        result = "".join(l.get("text", "") for l in lines if isinstance(l, dict))
+        # 提取文字（API 把 lines 放在 tables 里）
+        texts = []
+        for table in data["result"].get("tables", []):
+            for line in table.get("lines", []):
+                if isinstance(line, dict) and line.get("text"):
+                    texts.append(line["text"])
+        for line in data["result"].get("lines", []):
+            if isinstance(line, dict) and line.get("text"):
+                texts.append(line["text"])
+        result = "".join(texts)
         result = re.sub(r"[^0-9a-zA-Z]", "", result)
         log.info(f"德勤OCR: '{result}' ({len(result)}位)")
         return result if len(result) >= 3 else None
