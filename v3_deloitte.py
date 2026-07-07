@@ -22,10 +22,15 @@ import random
 import urllib3
 
 import requests
+import numpy as np
 from PIL import Image
 from bs4 import BeautifulSoup
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# EasyOCR 降级（德勤API挂了时用）
+_easyocr_reader = None
+_deloitte_dead = False
 
 # ============================================================
 # 配置
@@ -317,12 +322,21 @@ def process_single_code(session: requests.Session, code: str, index: int) -> dic
         # 德勤OCR 识别 + 预校验
         captcha_ok = False
         captcha_text = None
+        empty_streak = 0
         for captcha_attempt in range(1, CAPTCHA_MAX_RETRIES + 1):
             captcha_text = ocr_captcha(img_bytes)
             if not captcha_text:
-                log.warning(f"OCR未识别到文字，刷新验证码...")
+                empty_streak += 1
+                log.warning(f"OCR返回空({empty_streak}连空)，刷新验证码...")
+                # 连续3次为空 → 可能是session或API挂了，重建session
+                if empty_streak >= 3:
+                    log.warning("OCR连续空，重建会话...")
+                    session.cookies.clear()
+                    session.get(SEARCH_URL, timeout=15)
+                    empty_streak = 0
                 img_bytes = get_captcha_image(session)
                 continue
+            empty_streak = 0
 
             log.info(f"OCR: '{captcha_text}'，预校验中...")
 
@@ -412,8 +426,8 @@ def main():
 
             log.info(f"进度: {success} 成功 / {fail} 失败 / {len(remaining)-i} 剩余")
 
-            # 随机休眠防抓包（2~6秒）
-            delay = random.uniform(2, 6)
+            # 随机休眠防抓包（0.5~1.5秒，德勤OCR快不需要太久）
+            delay = random.uniform(0.5, 1.5)
             time.sleep(delay)
 
     except KeyboardInterrupt:
