@@ -22,7 +22,7 @@ import random
 
 import requests
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter, ImageEnhance, ImageOps
 from bs4 import BeautifulSoup
 import easyocr
 
@@ -181,12 +181,33 @@ def get_captcha_image(session: requests.Session) -> bytes:
     return resp.content
 
 
+def preprocess_captcha(img_bytes: bytes):
+    """验证码图片预处理：灰度→二值化→去噪→锐化→放大3倍"""
+    img = Image.open(io.BytesIO(img_bytes)).convert("L")  # 灰度
+
+    # 1. 二值化：Otsu 自动阈值，黑白分明
+    arr = np.array(img)
+    threshold = np.mean(arr) - np.std(arr) * 0.3
+    img = img.point(lambda p: 255 if p > threshold else 0)
+
+    # 2. 中值滤波去噪（去掉散点）
+    img = img.filter(ImageFilter.MedianFilter(3))
+
+    # 3. 锐化增强边缘
+    img = img.filter(ImageFilter.SHARPEN)
+
+    # 4. 放大 3 倍
+    w, h = img.size
+    img = img.resize((w * 3, h * 3), Image.LANCZOS)
+
+    return img
+
+
 def ocr_captcha(img_bytes: bytes, reader) -> str | None:
-    """EasyOCR 识别验证码（放大3倍提高准确率）"""
+    """预处理 + EasyOCR 识别验证码"""
     try:
-        image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-        image = image.resize((image.width * 3, image.height * 3), Image.LANCZOS)
-        img_array = np.array(image)
+        img = preprocess_captcha(img_bytes).convert("RGB")
+        img_array = np.array(img)
         results = reader.readtext(img_array, detail=0, text_threshold=0.3, low_text=0.3, link_threshold=0.3, width_ths=2.0)
         result = "".join(results).strip()
         result = "".join(c for c in result if c.isalnum())

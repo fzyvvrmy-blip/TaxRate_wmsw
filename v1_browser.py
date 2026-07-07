@@ -27,7 +27,8 @@ from pathlib import Path
 
 import easyocr
 import io
-from PIL import Image
+from PIL import Image, ImageFilter
+import numpy as np
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
@@ -259,10 +260,20 @@ def fill_hs_code(page, code: str, index: int):
     click_blank(page)  # 消除可能的弹窗遮挡
 
 
+def preprocess_captcha(img_bytes: bytes):
+    """验证码图片预处理：灰度→二值化→去噪→锐化→放大3倍"""
+    img = Image.open(io.BytesIO(img_bytes)).convert("L")
+    arr = np.array(img)
+    threshold = np.mean(arr) - np.std(arr) * 0.3
+    img = img.point(lambda p: 255 if p > threshold else 0)
+    img = img.filter(ImageFilter.MedianFilter(3))
+    img = img.filter(ImageFilter.SHARPEN)
+    w, h = img.size
+    return img.resize((w * 3, h * 3), Image.LANCZOS)
+
+
 def recognize_captcha(page, reader) -> str | None:
-    """
-    截图验证码图片 → EasyOCR识别 → 返回识别文本（区分大小写）
-    """
+    """截图验证码图片 → 预处理 → EasyOCR识别"""
     captcha_img = page.locator("img#img_code")
     if captcha_img.count() == 0:
         log.warning("未找到验证码图片元素")
@@ -270,19 +281,11 @@ def recognize_captcha(page, reader) -> str | None:
 
     try:
         img_bytes = captcha_img.screenshot(timeout=5000)
-        image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-        import numpy as np
-        img_array = np.array(image)
-
-        # 检测后用宽松参数合并框，避免丢末位
-        results = reader.readtext(
-            img_array, detail=0,
-            text_threshold=0.3, low_text=0.3, link_threshold=0.3,
-            width_ths=2.0,  # 横向拉宽，把分散字符并在一起
-        )
+        img = preprocess_captcha(img_bytes).convert("RGB")
+        img_array = np.array(img)
+        results = reader.readtext(img_array, detail=0, text_threshold=0.3, low_text=0.3, link_threshold=0.3, width_ths=2.0)
         result = "".join(results).strip()
         result = "".join(c for c in result if c.isalnum())
-
         log.info(f"EasyOCR 识别结果: '{result}'")
         return result if result and len(result) >= 3 else None
     except Exception as e:

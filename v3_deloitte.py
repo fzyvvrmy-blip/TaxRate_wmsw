@@ -23,7 +23,7 @@ import urllib3
 
 import requests
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 from bs4 import BeautifulSoup
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -191,16 +191,26 @@ def get_captcha_image(session: requests.Session) -> bytes:
 DELOITTE_OCR_URL = "https://ibondtest.deloitte.com.cn/ocr_file?character=1"
 
 
-def ocr_captcha(img_bytes: bytes, _=None) -> str | None:
-    """德勤内网OCR识别验证码（放大3倍 → 上传 → 返回文字）"""
-    try:
-        # 放大图片
-        image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-        image = image.resize((image.width * 3, image.height * 3), Image.LANCZOS)
-        buf = io.BytesIO()
-        image.save(buf, format="PNG")
+def preprocess_captcha(img_bytes: bytes):
+    """验证码图片预处理：灰度→二值化→去噪→锐化→放大3倍"""
+    img = Image.open(io.BytesIO(img_bytes)).convert("L")
+    arr = np.array(img)
+    threshold = np.mean(arr) - np.std(arr) * 0.3
+    img = img.point(lambda p: 255 if p > threshold else 0)
+    img = img.filter(ImageFilter.MedianFilter(3))
+    img = img.filter(ImageFilter.SHARPEN)
+    w, h = img.size
+    img = img.resize((w * 3, h * 3), Image.LANCZOS)
+    return img
 
-        # 调德勤 OCR
+
+def ocr_captcha(img_bytes: bytes, _=None) -> str | None:
+    """预处理 + 德勤内网OCR识别验证码"""
+    try:
+        img = preprocess_captcha(img_bytes).convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+
         resp = requests.post(DELOITTE_OCR_URL, data=buf.getvalue(), timeout=30, verify=False)
         if resp.status_code != 200:
             log.error(f"德勤OCR返回非200: {resp.status_code}")
@@ -210,7 +220,6 @@ def ocr_captcha(img_bytes: bytes, _=None) -> str | None:
             log.error(f"德勤OCR失败: {data.get('message', '?')}")
             return None
 
-        # 提取文字（API 把 lines 放在 tables 里）
         texts = []
         for table in data["result"].get("tables", []):
             for line in table.get("lines", []):
