@@ -150,9 +150,10 @@ def get_captcha_image(session: requests.Session) -> bytes:
 
 
 def ocr_captcha(img_bytes: bytes, reader) -> str | None:
-    """EasyOCR 识别验证码"""
+    """EasyOCR 识别验证码（放大3倍提高准确率）"""
     try:
         image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        image = image.resize((image.width * 3, image.height * 3), Image.LANCZOS)
         img_array = np.array(image)
         results = reader.readtext(img_array, detail=0, text_threshold=0.3, low_text=0.3, link_threshold=0.3, width_ths=2.0)
         result = "".join(results).strip()
@@ -168,7 +169,7 @@ def validate_captcha(session: requests.Session, code: str) -> bool:
     try:
         resp = session.post(PRE_VALIDATE_URL, data={"imgcode": code}, timeout=10,
                             headers={"X-Requested-With": "XMLHttpRequest", "Origin": BASE_URL, "Referer": SEARCH_URL})
-        return resp.json().get("success") == True
+        return resp.json().get("validateResult") == True
     except Exception:
         return False
 
@@ -178,6 +179,7 @@ def submit_search(session: requests.Session, hs_code: str, captcha: str) -> str 
     try:
         resp = session.post(SEARCH_MORE_URL, data={
             "ec": "US",
+            "oc": hs_code,
             "ic": "CN",
             "hc": hs_code,
             "imgcode": captcha,
