@@ -113,13 +113,45 @@ def load_existing_results() -> list[dict]:
 def save_results(new_entry: dict):
     existing = load_existing_results()
     tariff_no = new_entry.get("税则号", "")
-    for item in existing:
+    for i, item in enumerate(existing):
         if item.get("税则号") == tariff_no and tariff_no:
+            # 已有记录 → 更新（补全不完整数据）
+            existing[i] = new_entry
+            with open(SAVE_FILE, "w", encoding="utf-8") as f:
+                json.dump(existing, f, ensure_ascii=False, indent=2)
+            log.info(f"更新税则号 {tariff_no}（已有记录被覆盖）")
             return
     existing.append(new_entry)
     with open(SAVE_FILE, "w", encoding="utf-8") as f:
         json.dump(existing, f, ensure_ascii=False, indent=2)
     log.info(f"已保存税则号 {tariff_no}，共 {len(existing)} 条记录")
+
+
+def is_result_complete(entry: dict) -> bool:
+    """判断一条结果是否信息完整"""
+    return bool(
+        entry.get("税则号") and
+        entry.get("进口关税") and
+        entry.get("其他税费") is not None
+    )
+
+
+def get_complete_codes() -> dict[str, bool]:
+    """
+    读取 result.json，返回 {原始编码: 是否完整}
+    只有 税则号 + 进口关税 + 其他税费 都有的才算完整
+    """
+    results = load_existing_results()
+    code_map = {}
+    for entry in results:
+        orig = entry.get("原始编码", "")
+        if orig:
+            # 如果已有完整记录，保留 True；不完整的用 False
+            if orig not in code_map:
+                code_map[orig] = is_result_complete(entry)
+            elif not code_map[orig]:
+                code_map[orig] = is_result_complete(entry)
+    return code_map
 
 
 def random_ua() -> str:
@@ -232,6 +264,7 @@ def parse_results_page(html: str, original_code: str) -> dict | None:
                 if tax_rate:
                     result["其他税费"].append({"税种": tax_name, "税率": tax_rate})
 
+    result["原始编码"] = original_code
     return result if result["税则号"] else None
 
 
@@ -309,12 +342,27 @@ def main():
         log.error("CSV中没有编码数据")
         sys.exit(1)
 
+    # 续跑逻辑：检查 progress.txt 和 result.json，信息不完整的也要重做
     processed = load_progress()
-    remaining = [c for c in codes if c not in processed]
-    log.info(f"总计 {len(codes)} 条，已处理 {len(processed)} 条，剩余 {len(remaining)} 条")
+    complete_codes = get_complete_codes()  # {原始编码: 是否完整}
+
+    remaining = []
+    incomplete_retry = []
+    for c in codes:
+        if c not in processed:
+            remaining.append(c)  # 没处理过的 → 要做
+        elif c in complete_codes and not complete_codes[c]:
+            incomplete_retry.append(c)  # 处理过但信息不完整 → 重做
+
+    log.info(f"总计 {len(codes)} 条")
+    log.info(f"  已完成（信息完整）: {len(processed) - len(incomplete_retry)} 条")
+    log.info(f"  待重做（信息不完整）: {len(incomplete_retry)} 条")
+    log.info(f"  未处理: {len(remaining)} 条")
+
+    remaining = incomplete_retry + remaining  # 先补漏，再做新的
 
     if not remaining:
-        log.info("所有编码已处理完毕")
+        log.info("所有编码已处理完毕且信息完整")
         return
 
     log.info("加载 EasyOCR...")
