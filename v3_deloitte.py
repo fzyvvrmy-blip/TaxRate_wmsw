@@ -232,7 +232,8 @@ def ocr_captcha(img_bytes: bytes, _=None) -> str | None:
         # 只去掉空白和特殊符号，保留中文英文数字
         result = re.sub(r"[\s\n\r\t]", "", result)
         log.info(f"德勤OCR: '{result}' ({len(result)}位)")
-        return result if len(result) >= 1 else None
+        # 验证码一定4位（数字/英文/中文），不足4位刷新重试
+        return result if len(result) == 4 else None
     except Exception as e:
         log.error(f"德勤OCR异常: {e}")
         return None
