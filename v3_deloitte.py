@@ -186,13 +186,13 @@ def create_session() -> requests.Session:
         "Accept-Language": "zh-CN,zh;q=0.9",
     })
     # 先访问首页拿 JSESSIONID
-    s.get(SEARCH_URL, timeout=15)
+    s.get(SEARCH_URL, timeout=15, verify=False)
     return s
 
 
 def get_captcha_image(session: requests.Session) -> bytes:
     """下载验证码图片"""
-    resp = session.get(f"{CAPTCHA_URL}?t={int(time.time()*1000)}", timeout=10)
+    resp = session.get(f"{CAPTCHA_URL}?t={int(time.time()*1000)}", timeout=10, verify=False)
     return resp.content
 
 
@@ -246,7 +246,7 @@ def ocr_captcha(img_bytes: bytes, _=None) -> str | None:
 def validate_captcha(session: requests.Session, code: str) -> bool:
     """预校验验证码是否正确（不提交表单）"""
     try:
-        resp = session.post(PRE_VALIDATE_URL, data={"imgcode": code}, timeout=10,
+        resp = session.post(PRE_VALIDATE_URL, data={"imgcode": code}, timeout=10, verify=False,
                             headers={"X-Requested-With": "XMLHttpRequest", "Origin": BASE_URL, "Referer": SEARCH_URL})
         return resp.json().get("validateResult") == True
     except Exception:
@@ -262,7 +262,7 @@ def submit_search(session: requests.Session, hs_code: str, captcha: str) -> str 
             "ic": "CN",
             "hc": hs_code,
             "imgcode": captcha,
-        }, timeout=15, headers={
+        }, timeout=15, verify=False, headers={
             "Origin": BASE_URL,
             "Referer": SEARCH_URL,
             "X-Requested-With": "XMLHttpRequest",
@@ -347,7 +347,7 @@ def process_single_code(session: requests.Session, code: str, index: int) -> dic
                 if empty_streak >= 3:
                     log.warning("OCR连续空，重建会话...")
                     session.cookies.clear()
-                    session.get(SEARCH_URL, timeout=15)
+                    session.get(SEARCH_URL, timeout=15, verify=False)
                     empty_streak = 0
                 img_bytes = get_captcha_image(session)
                 continue
@@ -454,7 +454,7 @@ def main():
                 log.info(f"已更换 Header（第{REQUEST_COUNT}条）")
             if REQUEST_COUNT % SESSION_REFRESH_INTERVAL == 0:
                 session.cookies.clear()
-                session.get(SEARCH_URL, timeout=15)
+                session.get(SEARCH_URL, timeout=15, verify=False)
                 log.info(f"已重建 Session（第{REQUEST_COUNT}条）")
 
             # 极短间隔（OCR调用本身已有耗时，无需额外等待）
