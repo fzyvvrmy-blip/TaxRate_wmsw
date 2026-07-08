@@ -23,7 +23,7 @@ import urllib3
 
 import requests
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageEnhance
 from bs4 import BeautifulSoup
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -192,13 +192,13 @@ DELOITTE_OCR_URL = "https://ibondtest.deloitte.com.cn/ocr_file?character=1"
 
 
 def preprocess_captcha(img_bytes: bytes):
-    """验证码图片预处理：灰度→二值化→去噪→锐化→放大3倍"""
-    img = Image.open(io.BytesIO(img_bytes)).convert("L")
-    arr = np.array(img)
-    threshold = np.mean(arr) - np.std(arr) * 0.3
-    img = img.point(lambda p: 255 if p > threshold else 0)
-    img = img.filter(ImageFilter.MedianFilter(3))
+    """温和预处理：增强对比度→锐化→放大3倍（不二值化，德勤API自己会处理）"""
+    img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+    # 增强对比度（1.5倍）
+    img = ImageEnhance.Contrast(img).enhance(1.5)
+    # 锐化
     img = img.filter(ImageFilter.SHARPEN)
+    # 放大3倍
     w, h = img.size
     img = img.resize((w * 3, h * 3), Image.LANCZOS)
     return img
@@ -229,9 +229,10 @@ def ocr_captcha(img_bytes: bytes, _=None) -> str | None:
             if isinstance(line, dict) and line.get("text"):
                 texts.append(line["text"])
         result = "".join(texts)
-        result = re.sub(r"[^0-9a-zA-Z]", "", result)
+        # 只去掉空白和特殊符号，保留中文英文数字
+        result = re.sub(r"[\s\n\r\t]", "", result)
         log.info(f"德勤OCR: '{result}' ({len(result)}位)")
-        return result if len(result) >= 3 else None
+        return result if len(result) >= 1 else None
     except Exception as e:
         log.error(f"德勤OCR异常: {e}")
         return None
