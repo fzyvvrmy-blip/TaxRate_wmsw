@@ -22,11 +22,23 @@ import random
 import urllib3
 
 import requests
+import ssl
 import numpy as np
 from PIL import Image, ImageFilter, ImageEnhance
 from bs4 import BeautifulSoup
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
+# 自定义 SSL 适配器：降低安全级别适配商务部老网站
+class LowSecurityHTTPAdapter(requests.adapters.HTTPAdapter):
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = ssl.create_default_context()
+        ctx.set_ciphers("DEFAULT:@SECLEVEL=1")
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        kwargs["ssl_context"] = ctx
+        return super().init_poolmanager(*args, **kwargs)
 
 # EasyOCR 降级（德勤API挂了时用）
 _easyocr_reader = None
@@ -178,15 +190,17 @@ def random_ua() -> str:
 # ============================================================
 
 def create_session() -> requests.Session:
-    """创建带 cookie 的 session"""
+    """创建带 cookie 的 session（使用自定义 SSL）"""
     s = requests.Session()
+    adapter = LowSecurityHTTPAdapter()
+    s.mount("https://", adapter)
     s.headers.update({
         "User-Agent": random_ua(),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "zh-CN,zh;q=0.9",
     })
     # 先访问首页拿 JSESSIONID
-    s.get(SEARCH_URL, timeout=15, verify=False)
+    s.get(SEARCH_URL, timeout=15)
     return s
 
 
