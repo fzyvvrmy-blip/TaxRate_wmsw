@@ -462,9 +462,8 @@ def main():
                 session.get(SEARCH_URL, timeout=15)
                 log.info(f"已重建 Session（第{REQUEST_COUNT}条）")
 
-            # 随机休眠防抓包（0.5~1.5秒）
-            delay = random.uniform(0.5, 1.5)
-            time.sleep(delay)
+            # 极短间隔（OCR调用本身已有耗时，无需额外等待）
+            time.sleep(random.uniform(0.1, 0.3))
 
     except KeyboardInterrupt:
         log.warning("用户中断，进度已保存")
