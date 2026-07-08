@@ -201,15 +201,15 @@ DELOITTE_OCR_URL = "https://ibondtest.deloitte.com.cn/ocr_file?character=1"
 
 
 def preprocess_captcha(img_bytes: bytes):
-    """温和预处理：增强对比度→锐化→放大3倍（不二值化，德勤API自己会处理）"""
+    """预处理: 增强对比度→略微锐化→放大6倍"""
     img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     # 增强对比度（1.5倍）
     img = ImageEnhance.Contrast(img).enhance(1.5)
     # 锐化
     img = img.filter(ImageFilter.SHARPEN)
-    # 放大3倍
+    # 放大6倍
     w, h = img.size
-    img = img.resize((w * 3, h * 3), Image.LANCZOS)
+    img = img.resize((w * 6, h * 6), Image.LANCZOS)
     return img
 
 
