@@ -48,6 +48,7 @@ PROGRESS_FILE = os.path.join(OUTPUT_DIR, "progress.txt")
 
 CAPTCHA_MAX_RETRIES = 10
 QUERY_MAX_RETRIES = 3
+MAX_STREAK_FAILURES = 20  # 连续失败N次自动停止（0=不限）
 
 # ============================================================
 # 日志
@@ -425,7 +426,7 @@ def main():
         log.info("所有编码已处理完毕且信息完整")
         return
 
-    success = fail = 0
+    success = fail = streak_fail = 0
     session = create_session()
     log.info(f"会话已建立，JSESSIONID={session.cookies.get('JSESSIONID', '?')[:20]}...")
     log.info("OCR 使用德勤内网服务: ibondtest.deloitte.com.cn")
@@ -439,9 +440,14 @@ def main():
                 save_results(result)
                 save_progress(code)
                 success += 1
+                streak_fail = 0
             else:
                 save_progress(code)
                 fail += 1
+                streak_fail += 1
+                if MAX_STREAK_FAILURES > 0 and streak_fail >= MAX_STREAK_FAILURES:
+                    log.error(f"连续失败 {streak_fail} 次，自动停止")
+                    break
 
             log.info(f"进度: {success} 成功 / {fail} 失败 / {len(remaining)-i} 剩余")
 
