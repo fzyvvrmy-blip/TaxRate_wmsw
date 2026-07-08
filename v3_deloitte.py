@@ -64,13 +64,21 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# User-Agent 池（防止被抓包）
+# User-Agent 池 + Accept-Language 池（防检测）
 UA_LIST = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
 ]
+LANG_LIST = ["zh-CN,zh;q=0.9", "en-US,en;q=0.9", "zh-CN,zh;q=0.9,en;q=0.8"]
+
+# 请求计数器 + 轮换间隔
+REQUEST_COUNT = 0
+HEADER_ROTATE_INTERVAL = 50   # 每50条换 header
+SESSION_REFRESH_INTERVAL = 100  # 每100条重建 session
 
 
 # ============================================================
@@ -437,7 +445,18 @@ def main():
 
             log.info(f"进度: {success} 成功 / {fail} 失败 / {len(remaining)-i} 剩余")
 
-            # 随机休眠防抓包（0.5~1.5秒，德勤OCR快不需要太久）
+            # 每50条换 header，每100条重建 session
+            global REQUEST_COUNT
+            REQUEST_COUNT += 1
+            if REQUEST_COUNT % HEADER_ROTATE_INTERVAL == 0:
+                session.headers.update({"User-Agent": random.choice(UA_LIST), "Accept-Language": random.choice(LANG_LIST)})
+                log.info(f"已更换 Header（第{REQUEST_COUNT}条）")
+            if REQUEST_COUNT % SESSION_REFRESH_INTERVAL == 0:
+                session.cookies.clear()
+                session.get(SEARCH_URL, timeout=15)
+                log.info(f"已重建 Session（第{REQUEST_COUNT}条）")
+
+            # 随机休眠防抓包（0.5~1.5秒）
             delay = random.uniform(0.5, 1.5)
             time.sleep(delay)
 
