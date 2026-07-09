@@ -334,66 +334,34 @@ def parse_results_page(html: str, original_code: str) -> dict | None:
 # ============================================================
 
 def process_single_code(session: requests.Session, code: str, index: int) -> dict | None:
-    """处理单条HS编码"""
+    """处理单条HS编码（无预校验，更像真人）"""
     log.info(f"{'='*50}")
     log.info(f"[{index}] 开始处理编码: {code}")
     log.info(f"{'='*50}")
 
-    for query_attempt in range(1, QUERY_MAX_RETRIES + 1):
-        log.info(f"查询尝试 {query_attempt}/{QUERY_MAX_RETRIES}")
-
+    for attempt in range(1, CAPTCHA_MAX_RETRIES + 1):
         # 获取验证码图片
         img_bytes = get_captcha_image(session)
         if not img_bytes:
-            log.warning("获取验证码图片失败")
             continue
 
-        # 德勤OCR 识别 + 预校验
-        captcha_ok = False
-        captcha_text = None
-        empty_streak = 0
-        for captcha_attempt in range(1, CAPTCHA_MAX_RETRIES + 1):
-            captcha_text = ocr_captcha(img_bytes)
-            if not captcha_text:
-                empty_streak += 1
-                log.warning(f"OCR返回空({empty_streak}连空)，刷新验证码...")
-                # 连续3次为空 → 可能是session或API挂了，重建session
-                if empty_streak >= 3:
-                    log.warning("OCR连续空，重建会话...")
-                    session.cookies.clear()
-                    session.get(SEARCH_URL, timeout=15, verify=False)
-                    empty_streak = 0
-                img_bytes = get_captcha_image(session)
-                continue
-            empty_streak = 0
-
-            log.info(f"OCR: '{captcha_text}'，预校验中...")
-
-            if validate_captcha(session, captcha_text):
-                log.info("验证码正确！")
-                captcha_ok = True
-                break
-            else:
-                log.warning(f"验证码 '{captcha_text}' 错误，刷新重试...")
-                img_bytes = get_captcha_image(session)
-
-        if not captcha_ok or not captcha_text:
-            log.error("验证码识别/校验失败（10次重试用尽）")
+        captcha_text = ocr_captcha(img_bytes)
+        if not captcha_text or len(captcha_text) != 4:
             continue
 
-        # 提交查询
+        log.info(f"OCR: '{captcha_text}'，直提查询...")
+
+        # 直接提交（不预校验，更像真人）
         html = submit_search(session, code, captcha_text)
         if html:
             result = parse_results_page(html, code)
             if result:
                 log.info(f"解析成功: 税则号={result['税则号']}, 进口关税={result['进口关税'][:50]}...")
                 return result
-            else:
-                log.warning("HTML解析失败")
-        else:
-            log.warning("查询返回无结果页标记")
 
-    log.error(f"编码 {code} 查询失败")
+        log.warning(f"第{attempt}次失败，刷新验证码...")
+
+    log.error(f"编码 {code} 查询失败（{CAPTCHA_MAX_RETRIES}次重试用尽）")
     return None
 
 
